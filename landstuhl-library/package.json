@@ -14,16 +14,17 @@
     "react-dom": "^18.3.1",
     "@react-three/fiber": "^8.17.10",
     "@react-three/drei": "^9.112.0",
+    "@react-three/postprocessing": "^2.16.2",
+    "postprocessing": "^6.36.3",
     "three": "^0.168.0",
-    "framer-motion": "^11.11.1",
-    "@types/three": "^0.168.0",
-    "leva": "^0.9.35"
+    "framer-motion": "^11.11.1"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
     "@types/node": "^22.7.5",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.168.0",
     "tailwindcss": "^3.4.14",
     "postcss": "^8.4.47",
     "autoprefixer": "^10.4.20"

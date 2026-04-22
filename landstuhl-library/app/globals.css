@@ -2,163 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Custom properties ─────────────────────────────────────────────────────── */
 :root {
-  --void: #050508;
-  --deep: #0a0b12;
-  --surface: #0f1120;
-  --electric: #4f6ef7;
-  --cyan: #06d6d6;
-  --aurora: #9b5de5;
-  --gold: #f7c948;
-  --line: rgba(255, 255, 255, 0.07);
+  --bg: #020817;
+  --electric: #3b82f6;
+  --aurora: #8b5cf6;
+  --cyan: #06b6d4;
+  --gold: #f59e0b;
 }
 
-/* ─── Base reset ────────────────────────────────────────────────────────────── */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html {
-  scroll-behavior: smooth;
-  -webkit-font-smoothing: antialiased;
-}
+html { scroll-behavior: smooth; }
 
 body {
-  background: var(--void);
+  background: var(--bg);
   color: #fff;
   font-family: var(--font-sans), system-ui, sans-serif;
-  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
-/* ─── Selection ─────────────────────────────────────────────────────────────── */
-::selection {
-  background: rgba(79, 110, 247, 0.3);
-  color: #fff;
-}
+::selection { background: rgba(59,130,246,0.28); color: #fff; }
 
-/* ─── Scrollbar ─────────────────────────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--void);
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(79, 110, 247, 0.35);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(79, 110, 247, 0.6);
-}
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.3); border-radius: 3px; }
 
-/* ─── Canvas fix — no pointer events bleed through ─────────────────────────── */
-canvas {
-  display: block;
-}
+canvas { display: block; }
 
-/* ─── Glassmorphism utility ─────────────────────────────────────────────────── */
-@layer components {
-  .glass {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-  }
-
-  .glass-strong {
-    background: rgba(15, 17, 32, 0.7);
-    backdrop-filter: blur(40px) saturate(200%);
-    -webkit-backdrop-filter: blur(40px) saturate(200%);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-  }
-
-  .gradient-text-electric {
-    background: linear-gradient(135deg, #4f6ef7, #9b5de5);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .gradient-text-gold {
-    background: linear-gradient(135deg, #f7c948, #f77c06);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .gradient-text-cyan {
-    background: linear-gradient(135deg, #06d6d6, #4f6ef7);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-}
-
-/* ─── Typography ────────────────────────────────────────────────────────────── */
-h1,
-h2,
-h3,
-h4,
-h5 {
-  font-family: var(--font-sans);
-  font-weight: 700;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
-}
-
-/* ─── Glow keyframes ────────────────────────────────────────────────────────── */
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-14px); }
-}
-
-@keyframes pulseGlow {
-  0%, 100% { opacity: 0.8; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.1); }
-}
-
-@keyframes gradientShift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-@keyframes shimmer {
-  0% { background-position: -200% center; }
-  100% { background-position: 200% center; }
-}
-
-/* ─── Reduced motion ────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
 
-/* ─── Prevent FOUC on Canvas load ───────────────────────────────────────────── */
-.canvas-container {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-}
-
-/* ─── Noise texture overlay (optional grain) ────────────────────────────────── */
+/* Subtle noise grain */
 body::after {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.025;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
-  background-size: 200px 200px;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
 }

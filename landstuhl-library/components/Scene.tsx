@@ -1,644 +1,295 @@
 'use client'
 
-import {
-  useRef,
-  useMemo,
-  useState,
-  useEffect,
-  Suspense,
-  forwardRef,
-} from 'react'
+import { useRef, useMemo, Suspense } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import {
   Float,
   Stars,
   Sparkles,
-  MeshDistortMaterial,
-  GradientTexture,
-  Preload,
-  useDetectGPU,
-  Trail,
+  Environment,
   PointMaterial,
-  Points,
+  Preload,
 } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 
-// ─── Library Hours (Landstuhl / Ramstein, Germany — CET/CEST) ──────────────
-function getLandstuhlTime(): Date {
-  const now = new Date()
-  // Determine if Germany is in DST (last Sunday in March → last Sunday in October)
-  const year = now.getUTCFullYear()
-  const dstStart = lastSundayOf(year, 2) // March (0-indexed)
-  const dstEnd = lastSundayOf(year, 9) // October
-  const offset = now >= dstStart && now < dstEnd ? 2 : 1
-  return new Date(now.getTime() + offset * 3_600_000)
-}
-
 function lastSundayOf(year: number, month: number): Date {
-  const d = new Date(Date.UTC(year, month + 1, 0)) // last day of month
+  const d = new Date(Date.UTC(year, month + 1, 0))
   d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 7) % 7))
   return d
 }
 
 export function isLibraryOpen(): boolean {
-  const local = getLandstuhlTime()
-  const day = local.getUTCDay() // 0=Sun … 6=Sat
+  const now = new Date()
+  const y = now.getUTCFullYear()
+  const offset = now >= lastSundayOf(y, 2) && now < lastSundayOf(y, 9) ? 2 : 1
+  const local = new Date(now.getTime() + offset * 3_600_000)
+  const day = local.getUTCDay()
   const hm = local.getUTCHours() + local.getUTCMinutes() / 60
   if (day === 0) return false
-  if (day >= 1 && day <= 5) return hm >= 10 && hm < 20 // Mon–Fri 10-20
-  if (day === 6) return hm >= 10 && hm < 17              // Sat 10-17
+  if (day >= 1 && day <= 5) return hm >= 10 && hm < 20
+  if (day === 6) return hm >= 10 && hm < 17
   return false
 }
 
 export function getNextOpenTime(): string {
-  const local = getLandstuhlTime()
+  const now = new Date()
+  const y = now.getUTCFullYear()
+  const offset = now >= lastSundayOf(y, 2) && now < lastSundayOf(y, 9) ? 2 : 1
+  const local = new Date(now.getTime() + offset * 3_600_000)
   const day = local.getUTCDay()
   const hm = local.getUTCHours() + local.getUTCMinutes() / 60
-
   if (day === 0) return 'Opens Monday at 10:00'
-  if (day >= 1 && day <= 5) {
-    if (hm < 10) return 'Opens today at 10:00'
-    if (hm >= 20) return 'Opens tomorrow at 10:00'
-  }
-  if (day === 6) {
-    if (hm < 10) return 'Opens today at 10:00'
-    if (hm >= 17) return 'Opens Monday at 10:00'
-  }
+  if (day >= 1 && day <= 5 && hm < 10) return 'Opens today at 10:00'
+  if (day >= 1 && day <= 4 && hm >= 20) return 'Opens tomorrow at 10:00'
+  if (day === 5 && hm >= 20) return 'Opens Saturday at 10:00'
+  if (day === 6 && hm < 10) return 'Opens today at 10:00'
+  if (day === 6 && hm >= 17) return 'Opens Monday at 10:00'
   return ''
 }
 
-// ─── Book Component ─────────────────────────────────────────────────────────
-function Book3D({
-  mouseX,
-  mouseY,
-  scrollProgress,
-}: {
-  mouseX: number
-  mouseY: number
-  scrollProgress: number
-}) {
+function HolographicBook({ mouseX, mouseY, scrollProgress }: { mouseX: number; mouseY: number; scrollProgress: number }) {
   const groupRef = useRef<THREE.Group>(null)
-  const coverMatRef = useRef<THREE.MeshStandardMaterial>(null)
-  const [hovered, setHovered] = useState(false)
-
   useFrame((state) => {
     if (!groupRef.current) return
     const t = state.clock.elapsedTime
-
-    // Mouse parallax tilt
-    groupRef.current.rotation.y = THREE.MathUtils.lerp(
-      groupRef.current.rotation.y,
-      mouseX * 0.6,
-      0.06,
-    )
-    groupRef.current.rotation.x = THREE.MathUtils.lerp(
-      groupRef.current.rotation.x,
-      mouseY * 0.25 - 0.1,
-      0.06,
-    )
-
-    // Gentle idle sway on top of mouse
-    groupRef.current.rotation.z = THREE.MathUtils.lerp(
-      groupRef.current.rotation.z,
-      Math.sin(t * 0.4) * 0.04,
-      0.05,
-    )
-
-    // Scroll-driven "explosion" — book scales down and drifts back
-    const explode = Math.min(scrollProgress * 2, 1)
-    const scale = THREE.MathUtils.lerp(1, 0.0, explode)
-    groupRef.current.scale.setScalar(
-      THREE.MathUtils.lerp(groupRef.current.scale.x, scale, 0.08),
-    )
-    groupRef.current.position.z = THREE.MathUtils.lerp(
-      groupRef.current.position.z,
-      explode * -4,
-      0.08,
-    )
-
-    // Hover pulse
-    if (coverMatRef.current) {
-      coverMatRef.current.emissiveIntensity = THREE.MathUtils.lerp(
-        coverMatRef.current.emissiveIntensity,
-        hovered ? 0.4 : 0.08,
-        0.08,
-      )
-    }
+    groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, mouseX * 0.85, 0.055)
+    groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, -mouseY * 0.28 - 0.08, 0.055)
+    groupRef.current.rotation.z = Math.sin(t * 0.28) * 0.028
+    const explode = Math.min(scrollProgress * 2.2, 1)
+    groupRef.current.scale.setScalar(THREE.MathUtils.lerp(groupRef.current.scale.x, 1 - explode * 0.97, 0.07))
+    groupRef.current.position.z = THREE.MathUtils.lerp(groupRef.current.position.z, -explode * 6, 0.07)
   })
-
   return (
-    <group ref={groupRef} position={[0.4, 0, 0]}>
-      {/* ── Pages block ── */}
+    <group ref={groupRef} position={[0.5, 0, 0]}>
       <mesh castShadow>
-        <boxGeometry args={[1.55, 2.18, 0.3]} />
-        <meshStandardMaterial
-          color="#e8e0d0"
-          roughness={0.95}
-          metalness={0}
-        />
+        <boxGeometry args={[1.5, 2.12, 0.3]} />
+        <meshStandardMaterial color="#e2d9c8" roughness={1} metalness={0} />
       </mesh>
-
-      {/* ── Front cover ── */}
-      <mesh
-        position={[0, 0, 0.175]}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-        castShadow
-      >
-        <boxGeometry args={[1.65, 2.28, 0.04]} />
-        <meshStandardMaterial
-          ref={coverMatRef}
-          color="#1a2744"
-          roughness={0.25}
-          metalness={0.55}
-          emissive="#4f6ef7"
-          emissiveIntensity={0.08}
-        />
-      </mesh>
-
-      {/* ── Back cover ── */}
-      <mesh position={[0, 0, -0.175]} castShadow>
-        <boxGeometry args={[1.65, 2.28, 0.04]} />
-        <meshStandardMaterial color="#141d36" roughness={0.3} metalness={0.4} />
-      </mesh>
-
-      {/* ── Spine ── */}
-      <mesh position={[-0.845, 0, 0]} castShadow>
-        <boxGeometry args={[0.045, 2.28, 0.38]} />
-        <meshStandardMaterial
-          color="#0d1628"
-          roughness={0.2}
-          metalness={0.7}
-          emissive="#4f6ef7"
-          emissiveIntensity={0.05}
-        />
-      </mesh>
-
-      {/* ── Gold spine stripe ── */}
-      <mesh position={[-0.841, 0, 0]}>
-        <boxGeometry args={[0.008, 2.28, 0.38]} />
-        <meshStandardMaterial
-          color="#f7c948"
-          roughness={0.1}
-          metalness={0.9}
-          emissive="#f7c948"
-          emissiveIntensity={0.3}
-        />
-      </mesh>
-
-      {/* ── Cover title emboss glow ── */}
-      <mesh position={[0, 0.3, 0.198]}>
-        <planeGeometry args={[1.1, 0.15]} />
-        <meshStandardMaterial
-          color="#f7c948"
-          emissive="#f7c948"
-          emissiveIntensity={0.6}
-          roughness={0.1}
+      <mesh position={[0, 0, 0.172]} castShadow>
+        <boxGeometry args={[1.62, 2.24, 0.042]} />
+        <meshPhysicalMaterial
+          color="#0b1830"
           metalness={1}
-          transparent
-          opacity={hovered ? 0.9 : 0.55}
+          roughness={0.04}
+          iridescence={1}
+          iridescenceIOR={2.0}
+          iridescenceThicknessRange={[100, 800] as [number, number]}
+          clearcoat={1}
+          clearcoatRoughness={0.04}
+          envMapIntensity={3}
         />
       </mesh>
-      <mesh position={[0, 0.08, 0.198]}>
-        <planeGeometry args={[0.8, 0.08]} />
-        <meshStandardMaterial
-          color="#94b0ff"
-          emissive="#94b0ff"
-          emissiveIntensity={0.4}
-          transparent
-          opacity={hovered ? 0.7 : 0.3}
-        />
+      <mesh position={[0, 0, -0.172]} castShadow>
+        <boxGeometry args={[1.62, 2.24, 0.042]} />
+        <meshPhysicalMaterial color="#09121f" metalness={0.9} roughness={0.18} envMapIntensity={1.8} />
       </mesh>
+      <mesh position={[-0.84, 0, 0]} castShadow>
+        <boxGeometry args={[0.042, 2.24, 0.38]} />
+        <meshStandardMaterial color="#060f1c" metalness={0.85} roughness={0.15} emissive="#3b6fff" emissiveIntensity={0.55} />
+      </mesh>
+      <mesh position={[-0.838, 0, 0]}>
+        <boxGeometry args={[0.005, 1.85, 0.38]} />
+        <meshStandardMaterial color="#f59e0b" emissive="#f59e0b" emissiveIntensity={3} roughness={0} metalness={1} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, 0.52, 0.195]}>
+        <planeGeometry args={[1.15, 0.1]} />
+        <meshStandardMaterial color="#f59e0b" emissive="#f59e0b" emissiveIntensity={2.5} toneMapped={false} roughness={0} metalness={1} />
+      </mesh>
+      <mesh position={[0, 0.34, 0.195]}>
+        <planeGeometry args={[0.88, 0.055]} />
+        <meshStandardMaterial color="#7eb8ff" emissive="#7eb8ff" emissiveIntensity={1.2} toneMapped={false} transparent opacity={0.75} />
+      </mesh>
+      {[0, 0.09, 0.18].map((off, i) => (
+        <mesh key={i} position={[0, -0.72 - off, 0.195]}>
+          <planeGeometry args={[0.55 - i * 0.1, 0.022]} />
+          <meshStandardMaterial color="#4f6ef7" emissive="#4f6ef7" emissiveIntensity={0.9} toneMapped={false} transparent opacity={0.55 - i * 0.1} />
+        </mesh>
+      ))}
     </group>
   )
 }
 
-// ─── Flying Pages Particle System ───────────────────────────────────────────
-interface PageData {
-  position: THREE.Vector3
-  velocity: THREE.Vector3
-  rotation: THREE.Euler
-  rotSpeed: THREE.Vector3
-  phase: number
-  speed: number
-}
+interface SwarmItem { pos: THREE.Vector3; rot: THREE.Euler; rs: [number,number,number]; wr: number; ws: number; wo: number }
 
-function FlyingPages({ scrollProgress }: { scrollProgress: number }) {
+function BookSwarm({ scrollProgress }: { scrollProgress: number }) {
+  const COUNT = 260
   const meshRef = useRef<THREE.InstancedMesh>(null)
   const dummy = useMemo(() => new THREE.Object3D(), [])
-
-  const pages = useMemo<PageData[]>(
-    () =>
-      Array.from({ length: 120 }, () => ({
-        position: new THREE.Vector3(
-          (Math.random() - 0.5) * 18,
-          (Math.random() - 0.5) * 14,
-          (Math.random() - 0.5) * 10,
-        ),
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 0.02,
-          (Math.random() - 0.5) * 0.015,
-          (Math.random() - 0.5) * 0.01,
-        ),
-        rotation: new THREE.Euler(
-          Math.random() * Math.PI * 2,
-          Math.random() * Math.PI * 2,
-          Math.random() * Math.PI * 2,
-        ),
-        rotSpeed: new THREE.Vector3(
-          (Math.random() - 0.5) * 0.03,
-          (Math.random() - 0.5) * 0.04,
-          (Math.random() - 0.5) * 0.02,
-        ),
-        phase: Math.random() * Math.PI * 2,
-        speed: 0.3 + Math.random() * 0.7,
-      })),
-    [],
-  )
-
+  const items = useMemo<SwarmItem[]>(() => Array.from({ length: COUNT }, () => {
+    const theta = Math.random() * Math.PI * 2
+    const phi = Math.acos(2 * Math.random() - 1)
+    const r = 5.5 + Math.random() * 11
+    return {
+      pos: new THREE.Vector3(r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi) - 2),
+      rot: new THREE.Euler(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2),
+      rs: [(Math.random() - 0.5) * 0.009, (Math.random() - 0.5) * 0.013, (Math.random() - 0.5) * 0.007],
+      wr: 0.25 + Math.random() * 0.65, ws: 0.06 + Math.random() * 0.14, wo: Math.random() * Math.PI * 2,
+    }
+  }), [])
   useFrame((state) => {
     if (!meshRef.current) return
     const t = state.clock.elapsedTime
-    const burst = Math.pow(Math.min(scrollProgress * 2.5, 1), 1.4)
-
-    pages.forEach((page, i) => {
-      const bob = Math.sin(t * page.speed + page.phase) * 0.18
-      const drift = t * page.speed * 0.08
-
-      const x = page.position.x + page.velocity.x * burst * 180 + Math.sin(t * 0.2 + page.phase) * burst * 2
-      const y = page.position.y + page.velocity.y * burst * 180 + bob + drift
-      const z = page.position.z + page.velocity.z * burst * 120 - burst * scrollProgress * 3
-
-      dummy.position.set(x, y, z)
-      dummy.rotation.set(
-        page.rotation.x + t * page.rotSpeed.x * (1 + burst * 3),
-        page.rotation.y + t * page.rotSpeed.y * (1 + burst * 3),
-        page.rotation.z + t * page.rotSpeed.z * (1 + burst * 3),
-      )
-
-      const scaleBase = 0.08 + burst * 0.22
-      dummy.scale.setScalar(scaleBase * page.speed)
+    const d = Math.min(scrollProgress * 2.8, 1)
+    items.forEach((item, i) => {
+      const wx = Math.sin(t * item.ws + item.wo) * item.wr * (1 - d * 0.4)
+      const wy = Math.cos(t * item.ws * 1.3 + item.wo) * item.wr * (1 - d * 0.4)
+      dummy.position.set(item.pos.x + wx + item.pos.x * d * 0.5, item.pos.y + wy + item.pos.y * d * 0.35, item.pos.z - d * 9)
+      dummy.rotation.set(item.rot.x + t * item.rs[0], item.rot.y + t * item.rs[1], item.rot.z + t * item.rs[2])
+      dummy.scale.setScalar(0.055 + Math.sin(item.wo) * 0.02)
       dummy.updateMatrix()
       meshRef.current!.setMatrixAt(i, dummy.matrix)
     })
-
     meshRef.current.instanceMatrix.needsUpdate = true
-    if (meshRef.current.instanceColor) {
-      meshRef.current.instanceColor.needsUpdate = true
-    }
   })
-
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, 120]} castShadow>
-      <planeGeometry args={[0.7, 0.92]} />
-      <meshStandardMaterial
-        color="#cdd8ff"
-        roughness={0.9}
-        metalness={0.0}
-        side={THREE.DoubleSide}
-        transparent
-        opacity={0.72}
-        emissive="#4f6ef7"
-        emissiveIntensity={0.06}
-      />
+    <instancedMesh ref={meshRef} args={[undefined, undefined, COUNT]}>
+      <boxGeometry args={[9, 12, 1.8]} />
+      <meshStandardMaterial color="#162040" metalness={0.7} roughness={0.3} emissive="#1e3a8a" emissiveIntensity={0.18} />
     </instancedMesh>
   )
 }
 
-// ─── Floating Community Orbs (Storytime / Tech / Research) ──────────────────
-function CommunityOrbs({ scrollProgress }: { scrollProgress: number }) {
-  const orbs = useMemo(
-    () => [
-      { label: 'Storytime', color: '#f7c948', pos: [-3.5, 1.2, -2] as [number, number, number], phase: 0 },
-      { label: 'Tech Hub', color: '#06d6d6', pos: [0, -1.8, -3] as [number, number, number], phase: 2.1 },
-      { label: 'Research', color: '#9b5de5', pos: [3.8, 0.6, -1.5] as [number, number, number], phase: 4.2 },
-    ],
-    [],
-  )
-
+function FlyingPages({ scrollProgress }: { scrollProgress: number }) {
+  const COUNT = 90
+  const meshRef = useRef<THREE.InstancedMesh>(null)
+  const dummy = useMemo(() => new THREE.Object3D(), [])
+  const pages = useMemo(() => Array.from({ length: COUNT }, () => ({
+    pos: new THREE.Vector3((Math.random() - 0.5) * 3.5, (Math.random() - 0.5) * 3.5, (Math.random() - 0.5) * 2),
+    vel: new THREE.Vector3((Math.random() - 0.5) * 0.045, (Math.random() - 0.5) * 0.035, (Math.random() - 0.5) * 0.02),
+    rot: new THREE.Euler(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2),
+    rs: new THREE.Vector3((Math.random() - 0.5) * 0.05, (Math.random() - 0.5) * 0.07, (Math.random() - 0.5) * 0.04),
+    phase: Math.random() * Math.PI * 2, spd: 0.4 + Math.random() * 0.7,
+  })), [])
+  useFrame((state) => {
+    if (!meshRef.current) return
+    const t = state.clock.elapsedTime
+    const burst = Math.pow(Math.min(scrollProgress * 2.6, 1), 1.3)
+    pages.forEach((p, i) => {
+      const s = burst * 210
+      dummy.position.set(
+        p.pos.x + p.vel.x * s + Math.sin(t * 0.3 + p.phase) * burst * 1.8,
+        p.pos.y + p.vel.y * s + Math.cos(t * 0.22 + p.phase) * burst * 1.4 + t * p.spd * 0.022 * burst,
+        p.pos.z + p.vel.z * s - burst * 4.5,
+      )
+      dummy.rotation.set(p.rot.x + t * p.rs.x * (1 + burst * 5), p.rot.y + t * p.rs.y * (1 + burst * 5), p.rot.z + t * p.rs.z * (1 + burst * 5))
+      dummy.scale.setScalar(burst * p.spd * 0.38)
+      dummy.updateMatrix()
+      meshRef.current!.setMatrixAt(i, dummy.matrix)
+    })
+    meshRef.current.instanceMatrix.needsUpdate = true
+  })
   return (
-    <>
-      {orbs.map((orb, i) => (
-        <OrbItem key={orb.label} {...orb} index={i} scrollProgress={scrollProgress} />
-      ))}
-    </>
+    <instancedMesh ref={meshRef} args={[undefined, undefined, COUNT]}>
+      <planeGeometry args={[0.72, 0.95]} />
+      <meshStandardMaterial color="#dce8ff" roughness={0.9} side={THREE.DoubleSide} transparent opacity={0.68} emissive="#4f6ef7" emissiveIntensity={0.14} />
+    </instancedMesh>
   )
 }
 
-function OrbItem({
-  color,
-  pos,
-  phase,
-  index,
-  scrollProgress,
-}: {
-  label: string
-  color: string
-  pos: [number, number, number]
-  phase: number
-  index: number
-  scrollProgress: number
-}) {
-  const ref = useRef<THREE.Mesh>(null)
-  const lightRef = useRef<THREE.PointLight>(null)
-
+function Particles() {
+  const COUNT = 900
+  const positions = useMemo(() => {
+    const arr = new Float32Array(COUNT * 3)
+    for (let i = 0; i < COUNT; i++) {
+      arr[i * 3] = (Math.random() - 0.5) * 34
+      arr[i * 3 + 1] = (Math.random() - 0.5) * 26
+      arr[i * 3 + 2] = (Math.random() - 0.5) * 22 - 4
+    }
+    return arr
+  }, [])
+  const ref = useRef<THREE.Points>(null)
   useFrame((state) => {
     if (!ref.current) return
-    const t = state.clock.elapsedTime
-    const reveal = Math.max(0, Math.min((scrollProgress * 3 - index * 0.2), 1))
-
-    ref.current.position.x = pos[0] + Math.sin(t * 0.4 + phase) * 0.3
-    ref.current.position.y = pos[1] + Math.cos(t * 0.35 + phase) * 0.25
-    ref.current.position.z = pos[2]
-    ref.current.scale.setScalar(
-      THREE.MathUtils.lerp(ref.current.scale.x, reveal * 0.55, 0.05),
-    )
-
-    if (lightRef.current) {
-      lightRef.current.intensity = reveal * 1.8
-    }
+    ref.current.rotation.y = state.clock.elapsedTime * 0.013
+    ref.current.rotation.x = state.clock.elapsedTime * 0.006
   })
-
-  const col = new THREE.Color(color)
-
   return (
-    <mesh ref={ref}>
-      <sphereGeometry args={[1, 32, 32]} />
-      <MeshDistortMaterial
-        color={color}
-        emissive={color}
-        emissiveIntensity={0.35}
-        roughness={0.1}
-        metalness={0.6}
-        distort={0.35}
-        speed={2}
-        transparent
-        opacity={0.7}
-      />
-      <pointLight
-        ref={lightRef}
-        color={color}
-        intensity={0}
-        distance={6}
-        decay={2}
-      />
-    </mesh>
+    <points ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" array={positions} count={COUNT} itemSize={3} />
+      </bufferGeometry>
+      <PointMaterial size={0.02} color="#5b7fff" transparent opacity={0.55} sizeAttenuation depthWrite={false} />
+    </points>
   )
 }
 
-// ─── Baby Storytime Bubbles ──────────────────────────────────────────────────
-function StoryBubbles({ active }: { active: boolean }) {
-  const count = 30
-  const refs = useRef<THREE.Mesh[]>([])
-
-  const bubbleData = useMemo(
-    () =>
-      Array.from({ length: count }, (_, i) => ({
-        x: (Math.random() - 0.5) * 6,
-        y: -2 + Math.random() * 2,
-        z: (Math.random() - 0.5) * 3,
-        speed: 0.3 + Math.random() * 0.5,
-        radius: 0.06 + Math.random() * 0.14,
-        phase: (i / count) * Math.PI * 2,
-      })),
-    [],
-  )
-
-  useFrame((state) => {
-    const t = state.clock.elapsedTime
-    refs.current.forEach((mesh, i) => {
-      if (!mesh) return
-      const d = bubbleData[i]
-      const rise = active ? d.speed * 0.04 : 0
-      mesh.position.y = ((d.y + t * rise * 60) % 7) - 3
-      mesh.position.x = d.x + Math.sin(t * d.speed + d.phase) * 0.3
-      mesh.scale.setScalar(
-        THREE.MathUtils.lerp(mesh.scale.x, active ? 1 : 0, 0.07),
-      )
-    })
-  })
-
-  return (
-    <>
-      {bubbleData.map((b, i) => (
-        <mesh
-          key={i}
-          ref={(el) => { if (el) refs.current[i] = el }}
-          position={[b.x, b.y, b.z]}
-          scale={0}
-        >
-          <sphereGeometry args={[b.radius, 12, 12]} />
-          <meshStandardMaterial
-            color="#c8f0ff"
-            roughness={0}
-            metalness={0.1}
-            transparent
-            opacity={0.45}
-            side={THREE.FrontSide}
-          />
-        </mesh>
-      ))}
-    </>
-  )
-}
-
-// ─── Neon Status Light ───────────────────────────────────────────────────────
-function NeonStatusLight({ isOpen }: { isOpen: boolean }) {
+function StatusLight({ isOpen }: { isOpen: boolean }) {
   const meshRef = useRef<THREE.Mesh>(null)
   const lightRef = useRef<THREE.PointLight>(null)
-  const color = isOpen ? '#00ff88' : '#ff3366'
-
+  const col = isOpen ? '#00ff88' : '#ff3366'
   useFrame((state) => {
     if (!meshRef.current || !lightRef.current) return
-    const pulse = 0.7 + Math.sin(state.clock.elapsedTime * 3) * 0.3
-    if (meshRef.current.material instanceof THREE.MeshStandardMaterial) {
-      meshRef.current.material.emissiveIntensity = pulse * (isOpen ? 1.4 : 1.0)
-    }
-    lightRef.current.intensity = pulse * (isOpen ? 2.5 : 1.8)
+    const pulse = 0.72 + Math.sin(state.clock.elapsedTime * 2.8) * 0.28
+    ;(meshRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity = pulse * 3
+    lightRef.current.intensity = pulse * 3.5
   })
-
   return (
-    <group position={[3.8, 2.6, 0.5]}>
+    <group position={[3.4, 2.1, 0.4]}>
       <mesh ref={meshRef}>
-        <sphereGeometry args={[0.14, 16, 16]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={1.4}
-          roughness={0}
-          metalness={0}
-          toneMapped={false}
-        />
+        <sphereGeometry args={[0.11, 16, 16]} />
+        <meshStandardMaterial color={col} emissive={col} emissiveIntensity={3} roughness={0} toneMapped={false} />
       </mesh>
-      <pointLight
-        ref={lightRef}
-        color={color}
-        intensity={2.5}
-        distance={5}
-        decay={2}
-      />
-      {/* Glow halo */}
+      <pointLight ref={lightRef} color={col} intensity={3.5} distance={5} decay={2} />
       <mesh>
-        <sphereGeometry args={[0.28, 16, 16]} />
-        <meshStandardMaterial
-          color={color}
-          transparent
-          opacity={0.08}
-          side={THREE.BackSide}
-        />
+        <sphereGeometry args={[0.28, 12, 12]} />
+        <meshStandardMaterial color={col} transparent opacity={0.07} side={THREE.BackSide} toneMapped={false} />
       </mesh>
     </group>
   )
 }
 
-// ─── Ambient Particle Field ──────────────────────────────────────────────────
-function AmbientParticles() {
-  const count = 800
-  const positions = useMemo(() => {
-    const arr = new Float32Array(count * 3)
-    for (let i = 0; i < count; i++) {
-      arr[i * 3] = (Math.random() - 0.5) * 28
-      arr[i * 3 + 1] = (Math.random() - 0.5) * 22
-      arr[i * 3 + 2] = (Math.random() - 0.5) * 16 - 4
-    }
-    return arr
-  }, [])
-
-  const ref = useRef<THREE.Points>(null)
-
-  useFrame((state) => {
-    if (!ref.current) return
-    ref.current.rotation.y = state.clock.elapsedTime * 0.018
-    ref.current.rotation.x = state.clock.elapsedTime * 0.009
-  })
-
-  return (
-    <points ref={ref}>
-      <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          args={[positions, 3]}
-        />
-      </bufferGeometry>
-      <PointMaterial
-        size={0.028}
-        color="#4f6ef7"
-        transparent
-        opacity={0.55}
-        sizeAttenuation
-        depthWrite={false}
-      />
-    </points>
-  )
-}
-
-// ─── Camera Rig ──────────────────────────────────────────────────────────────
-function CameraRig({
-  mouseX,
-  mouseY,
-  scrollProgress,
-}: {
-  mouseX: number
-  mouseY: number
-  scrollProgress: number
-}) {
+function CameraRig({ mouseX, mouseY, scrollProgress }: { mouseX: number; mouseY: number; scrollProgress: number }) {
   const { camera } = useThree()
-
   useFrame(() => {
-    // Subtle mouse parallax on camera
-    camera.position.x = THREE.MathUtils.lerp(camera.position.x, mouseX * 0.8, 0.04)
-    camera.position.y = THREE.MathUtils.lerp(camera.position.y, -mouseY * 0.5 + 0.2, 0.04)
-
-    // Scroll-driven camera dolly through the "book stack"
-    const targetZ = 5 - scrollProgress * 8
-    camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZ, 0.06)
-
-    // Slight upward camera drift on scroll (cinematic)
-    const targetY = camera.position.y - scrollProgress * 1.5
-    camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, 0.04)
-
+    camera.position.x = THREE.MathUtils.lerp(camera.position.x, mouseX * 0.65, 0.05)
+    camera.position.y = THREE.MathUtils.lerp(camera.position.y, mouseY * 0.3 + 0.1, 0.05)
+    camera.position.z = THREE.MathUtils.lerp(camera.position.z, 5.2 - scrollProgress * 7, 0.055)
     camera.lookAt(0, 0, 0)
   })
-
   return null
 }
 
-// ─── Main Scene ──────────────────────────────────────────────────────────────
-function SceneContent({
-  mouseX,
-  mouseY,
-  scrollProgress,
-  storypageHovered,
-  isOpen,
-}: {
-  mouseX: number
-  mouseY: number
-  scrollProgress: number
-  storypageHovered: boolean
-  isOpen: boolean
-}) {
+function SceneContent({ mouseX, mouseY, scrollProgress, isOpen }: { mouseX: number; mouseY: number; scrollProgress: number; isOpen: boolean }) {
   return (
     <>
       <CameraRig mouseX={mouseX} mouseY={mouseY} scrollProgress={scrollProgress} />
-
-      {/* Lighting */}
-      <ambientLight intensity={0.15} />
-      <directionalLight position={[5, 8, 5]} intensity={0.6} color="#b0c4ff" castShadow />
-      <directionalLight position={[-4, -3, 2]} intensity={0.2} color="#9b5de5" />
-      <pointLight position={[0, 0, 4]} intensity={0.8} color="#4f6ef7" distance={12} decay={2} />
-
-      <Stars radius={60} depth={30} count={1200} factor={3} saturation={0.4} fade speed={0.6} />
-      <Sparkles count={80} scale={12} size={1.8} speed={0.25} opacity={0.5} color="#94b0ff" />
-
-      <AmbientParticles />
-
-      <Float speed={1.4} rotationIntensity={0.12} floatIntensity={0.35}>
-        <Book3D mouseX={mouseX} mouseY={mouseY} scrollProgress={scrollProgress} />
+      <Environment preset="city" />
+      <fog attach="fog" color="#020817" near={14} far={42} />
+      <ambientLight intensity={0.08} />
+      <directionalLight position={[5, 9, 5]} intensity={0.9} color="#90b4ff" castShadow />
+      <directionalLight position={[-4, -5, 2]} intensity={0.35} color="#8b5cf6" />
+      <pointLight position={[0, 0, 4]} intensity={1.4} color="#3b6fff" distance={12} decay={2} />
+      <Stars radius={80} depth={50} count={2200} factor={3} saturation={0.3} fade speed={0.35} />
+      <Sparkles count={55} scale={11} size={1.4} speed={0.18} opacity={0.38} color="#8090ff" />
+      <Particles />
+      <BookSwarm scrollProgress={scrollProgress} />
+      <Float speed={1.15} rotationIntensity={0.07} floatIntensity={0.28}>
+        <HolographicBook mouseX={mouseX} mouseY={mouseY} scrollProgress={scrollProgress} />
       </Float>
-
       <FlyingPages scrollProgress={scrollProgress} />
-      <CommunityOrbs scrollProgress={scrollProgress} />
-      <StoryBubbles active={storypageHovered} />
-      <NeonStatusLight isOpen={isOpen} />
+      <StatusLight isOpen={isOpen} />
+      <EffectComposer>
+        <Bloom luminanceThreshold={0.18} luminanceSmoothing={0.9} intensity={2.4} mipmapBlur />
+        <Vignette offset={0.25} darkness={0.85} />
+      </EffectComposer>
+      <Preload all />
     </>
   )
 }
 
-// ─── Exported Canvas Wrapper ─────────────────────────────────────────────────
-export default function LibraryScene({
-  mouseX,
-  mouseY,
-  scrollProgress,
-  storypageHovered,
-}: {
-  mouseX: number
-  mouseY: number
-  scrollProgress: number
-  storypageHovered: boolean
-}) {
-  const isOpen = useMemo(() => isLibraryOpen(), [])
-
+export default function LibraryScene({ mouseX, mouseY, scrollProgress }: { mouseX: number; mouseY: number; scrollProgress: number }) {
+  const isOpen = isLibraryOpen()
   return (
     <Canvas
-      camera={{ position: [0, 0, 5], fov: 55, near: 0.1, far: 100 }}
+      camera={{ position: [0, 0, 5.2], fov: 52, near: 0.1, far: 100 }}
       dpr={[1, 2]}
-      gl={{
-        antialias: true,
-        toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 1.1,
-      }}
+      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2, powerPreference: 'high-performance' }}
       shadows
       style={{ background: 'transparent' }}
     >
       <Suspense fallback={null}>
-        <SceneContent
-          mouseX={mouseX}
-          mouseY={mouseY}
-          scrollProgress={scrollProgress}
-          storypageHovered={storypageHovered}
-          isOpen={isOpen}
-        />
-        <Preload all />
+        <SceneContent mouseX={mouseX} mouseY={mouseY} scrollProgress={scrollProgress} isOpen={isOpen} />
       </Suspense>
     </Canvas>
   )
